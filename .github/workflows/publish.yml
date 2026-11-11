@@ -1,4 +1,4 @@
-# Publishes the builds that OpenAuto's private CI hands over (OPENAUTO-56).
+# Publishes the builds that Kadode's private CI hands over (OPENAUTO-56).
 # The private CI pushes one commit on top of main to a branch incoming/v<version>, with a deploy key
 # that can write to this repo only. This workflow checks the APK (file names, SHA-256, package,
 # version, signing certificate), makes the pre-release with this repo's own github.token and deletes
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   publish:
-    if: github.repository == 'vardstein/openauto-releases'
+    if: github.repository == 'vardstein/kadode-releases'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -33,7 +33,7 @@ jobs:
           tag=${GITHUB_REF_NAME#incoming/}
           [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$ ]] || { echo "not a release name: $tag" >&2; exit 1; }
           name=${tag#v}
-          apk="openauto-$name.apk"
+          apk="kadode-$name.apk"
 
           changed=$(git diff --name-only HEAD^ HEAD | sort)
           want=$(printf 'incoming/%s\n' "$apk" "$apk.sha256" notes.md | sort)
@@ -45,7 +45,7 @@ jobs:
           bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           badge=$("$bt/aapt2" dump badging "$apk" | head -1)
           echo "$badge"
-          [[ $badge == *"name='de.openjade.openauto'"* ]] || { echo "wrong package" >&2; exit 1; }
+          [[ $badge == *"name='de.openjade.kadode'"* ]] || { echo "wrong package" >&2; exit 1; }
           [[ $badge == *"versionName='$name'"* ]] || { echo "version is not $name" >&2; exit 1; }
 
           got=$("$bt/apksigner" verify --print-certs "$apk" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
@@ -60,6 +60,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$OJ_TAG" -R "$GITHUB_REPOSITORY" --target main --prerelease \
-            --title "OpenAuto ${OJ_TAG#v}" --notes-file incoming/notes.md \
+            --title "Kadode ${OJ_TAG#v}" --notes-file incoming/notes.md \
             "incoming/$OJ_APK" "incoming/$OJ_APK.sha256"
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$GITHUB_REF_NAME"
