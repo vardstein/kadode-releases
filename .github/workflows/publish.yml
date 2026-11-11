@@ -1,0 +1,65 @@
+# Publishes the builds that OpenAuto's private CI hands over (OPENAUTO-56).
+# The private CI pushes one commit on top of main to a branch incoming/v<version>, with a deploy key
+# that can write to this repo only. This workflow checks the APK (file names, SHA-256, package,
+# version, signing certificate), makes the pre-release with this repo's own github.token and deletes
+# the branch. The release tag points at main, so the APK never lands in main's history.
+# A failed check leaves the branch in place to look at.
+name: publish
+
+on:
+  push:
+    branches: ['incoming/**']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'vardstein/openauto-releases'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Check
+        run: |
+          tag=${GITHUB_REF_NAME#incoming/}
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$ ]] || { echo "not a release name: $tag" >&2; exit 1; }
+          name=${tag#v}
+          apk="openauto-$name.apk"
+
+          changed=$(git diff --name-only HEAD^ HEAD | sort)
+          want=$(printf 'incoming/%s\n' "$apk" "$apk.sha256" notes.md | sort)
+          [ "$changed" = "$want" ] || { printf 'unexpected files:\n%s\n' "$changed" >&2; exit 1; }
+
+          cd incoming
+          sha256sum -c "$apk.sha256"
+
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          badge=$("$bt/aapt2" dump badging "$apk" | head -1)
+          echo "$badge"
+          [[ $badge == *"name='de.openjade.openauto'"* ]] || { echo "wrong package" >&2; exit 1; }
+          [[ $badge == *"versionName='$name'"* ]] || { echo "version is not $name" >&2; exit 1; }
+
+          got=$("$bt/apksigner" verify --print-certs "$apk" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          pin=$(tr -d ':\n' < ../cert-sha256.txt | tr 'A-F' 'a-f')
+          [ "$got" = "$pin" ] || { echo "signed with $got, expected $pin" >&2; exit 1; }
+
+          echo "OJ_TAG=$tag" >> "$GITHUB_ENV"
+          echo "OJ_APK=$apk" >> "$GITHUB_ENV"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$OJ_TAG" -R "$GITHUB_REPOSITORY" --target main --prerelease \
+            --title "OpenAuto ${OJ_TAG#v}" --notes-file incoming/notes.md \
+            "incoming/$OJ_APK" "incoming/$OJ_APK.sha256"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$GITHUB_REF_NAME"

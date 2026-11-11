@@ -21,3 +21,9 @@ Every APK is signed with this certificate (SHA-256):
 `apksigner verify --print-certs openauto-*.apk` must show the same digest. Android refuses an
 update signed with another key, so a swapped APK can't replace an installed one.
 Each release also lists the APK's own SHA-256.
+
+## How builds get here
+
+OpenAuto's CI hands each dev build over on a branch `incoming/v<version>`. The publish workflow
+checks the APK's SHA-256, package, version and signing certificate against `cert-sha256.txt`,
+then makes the pre-release and deletes the branch.
